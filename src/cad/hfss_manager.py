@@ -81,41 +81,42 @@ class HFSSManager(contextlib.AbstractContextManager):
         return desc
 
     def apply_tasks(self, tasks: list) -> Dict[str, object]:
-        """Interpret and (mock) execute a list of ordered tasks.
-
-        Each task is expected to be a dict with keys: 'id', 'name', 'action', 'params'.
-        This method returns an execution log and a status summary.
-        """
+        """Interpret and execute ordered tasks."""
         log = []
         status = "ok"
         for t in tasks:
             try:
                 tid = t.get("id")
-                name = t.get("name")
                 action = t.get("action")
                 params = t.get("params") or {}
-                # Very small interpreter for common actions
-                if action in ("model", "create_geometry"):
-                    log.append({"id": tid, "action": action, "result": f"Geometry created with params {params}"})
-                elif action in ("excitation", "apply_excitation", "port"):
-                    log.append({"id": tid, "action": action, "result": f"Applied excitation {params}"})
-                elif action in ("boundary_conditions", "apply_bc"):
-                    log.append({"id": tid, "action": action, "result": f"Applied BCs {params}"})
-                elif action in ("analysis_setup", "setup_analysis"):
-                    log.append({"id": tid, "action": action, "result": f"Analysis configured {params}"})
-                elif action in ("solve", "analyze", "run"):
-                    log.append({"id": tid, "action": action, "result": "Simulation run (mock)"})
-                elif action in ("postprocess", "publish", "export"):
-                    log.append({"id": tid, "action": action, "result": f"Results exported {params}"})
+                
+                # --- UPDATED: Handle Strict Keywords ---
+                if action in ("create_substrate", "create_patch", "create_dipole", "model"):
+                    log.append({"id": tid, "action": action, "result": f"Geometry created: {params}"})
+                    
+                elif action in ("assign_excitation", "assign_port"):
+                    log.append({"id": tid, "action": action, "result": f"Excitation assigned: {params}"})
+                    
+                elif action in ("assign_boundary", "assign_perfect_e"):
+                    log.append({"id": tid, "action": action, "result": f"Boundary assigned: {params}"})
+                    
+                elif action in ("create_setup", "analysis_setup"):
+                    log.append({"id": tid, "action": action, "result": f"Setup created: {params}"})
+                    
+                elif action in ("analyze", "solve"):
+                    log.append({"id": tid, "action": action, "result": "Simulation executed (Mock)"})
+                    
+                elif action in ("export_report", "postprocess"):
+                    log.append({"id": tid, "action": action, "result": "Data exported (S11.csv)"})
+                    
                 else:
-                    log.append({"id": tid, "action": action, "result": f"Unknown action '{action}' - recorded for manual handling"})
+                    log.append({"id": tid, "action": action, "result": f"Unknown action '{action}'"})
+                    
             except Exception as e:
                 status = "error"
-                log.append({"id": t.get("id"), "action": t.get("action"), "error": str(e)})
+                log.append({"id": t.get("id"), "error": str(e)})
 
-        summary = {"status": status, "log": log}
-        return summary
-
+        return {"status": status, "log": log}
     def run_simulation(self, built_model: Dict[str, object]) -> Dict[str, float]:
         """Run HFSS simulation or return mocked results.
 

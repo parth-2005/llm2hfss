@@ -4,6 +4,7 @@ This module provides a tiny `Parser` class that imitates an LLM's
 intent extraction without requiring external services.
 """
 
+import json
 from typing import Dict, List, Optional
 import re
 
@@ -65,33 +66,54 @@ class Parser:
 
     def build_cot_prompt(self, spec: Dict[str, object], request_id: Optional[str] = None) -> str:
         """Create a Chain-of-Thought (COT) prompt to send to Gemini.
-
-        The prompt requests step-by-step reasoning and asks the model to
-        output final structured JSON containing antenna type and frequencies.
+        
+        UPGRADE: Enforces strict action keywords so the Python code can execute them.
         """
+        
+        # Define the allowed vocabulary for the "Hands" (Python)
+        allowed_actions = [
+            "create_substrate",   # Draw the dielectric
+            "create_patch",       # Draw the metal radiator
+            "create_dipole",      # Draw wires
+            "assign_excitation",  # Add lumped port / wave port
+            "assign_boundary",    # Radiation / PEC / FiniteCond
+            "create_setup",       # Frequency sweep configuration
+            "analyze",            # Run simulation
+            "export_report"       # S11, Gain plot
+        ]
 
         lines = [
-            "You are an expert antenna engineer. Provide a very short chain-of-thought (one or two sentences),",
-            "then output a final JSON object only. The JSON MUST contain the following keys:",
-            "  - 'antenna_type' (string),",
-            "  - 'frequencies_hz' (array of numbers),",
-            "  - 'tasks' (an ordered array of task objects),",
-            "    where each task object is { 'id': <int>, 'name': <string>, 'action': <string>, 'params': <object> }",
-            "  - optional 'notes' string.",
+            "ROLE: You are a Senior RF Engineer and Simulation Architect.",
+            "TASK: Analyze the user request and generate a structured simulation plan.",
             "",
-            "The 'tasks' array should enumerate the full modelling workflow required for this problem. Typical tasks include:",
-            "  1) model: create geometry with parameters",
-            "  2) excitation: apply feed/excitation (port, type, amplitude, phase),",
-            "  3) boundary_conditions: apply BCs (radiation, symmetry, perfect conductor),",
-            "  4) analysis_setup: set frequency sweep / solver settings / convergence criteria,",
-            "  5) solve: run analysis,",
-            "  6) postprocess: extract S-parameters, fields, gain, and export results (publish).",
+            "### STEP 1: PHYSICS REASONING (Chain of Thought)",
+            "Briefly calculate key parameters:",
+            "- Target Frequency (f0)",
+            "- Wavelength (lambda = c/f0)",
+            "- Estimated Dimensions (e.g., L ~ 0.49*lambda for patch)",
             "",
-            f"User request: {spec.get('raw')}",
+            "### STEP 2: SIMULATION PLAN (JSON)",
+            "Output a JSON object with these keys:",
+            "  - 'antenna_type': String ('patch' or 'dipole')",
+            "  - 'frequencies_hz': [float]",
+            "  - 'tasks': A list of execution steps. Each step MUST look like:",
+            "    {",
+            "      'id': <int>,",
+            "      'action': <STRICT_KEYWORD>,",
+            "      'params': { <parameter_name>: <numeric_value_or_string> }",
+            "    }",
             "",
-            "For each task provide an 'action' string the CAD manager can interpret and a 'params' object with relevant numeric parameters.",
-            "Return ONLY the JSON (no markdown, no code fences).",
+            "### CONSTRAINTS",
+            f"1. The 'action' field MUST be one of: {json.dumps(allowed_actions)}.",
+            "2. All dimensions must be in 'mm'. All frequencies in 'Hz'.",
+            "3. Do not invent new actions. Map complex ideas to these primitives.",
+            "",
+            f"USER REQUEST: \"{spec.get('raw')}\"",
+            "",
+            "RESPONSE (JSON ONLY):"
         ]
+        
         if request_id:
             lines.insert(0, f"Request-ID: {request_id}")
+            
         return "\n".join(lines)

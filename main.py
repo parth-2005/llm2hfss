@@ -11,7 +11,7 @@ def main():
     agent = Agent(provider="gemini", model="gemini-2.0-flash-lite")
     # Example user request; Agent will attempt LLM JSON parsing but will
     # gracefully fall back to parser-only behavior if Gemini is not configured.
-    user_req = "Make a patch antenna that works at 2.4 GHz"
+    user_req = "I need a Bluetooth antenna."
     result = agent.run_design(user_req)
     print("Agent result:")
     import json

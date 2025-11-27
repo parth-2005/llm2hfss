@@ -53,10 +53,6 @@ class LLMClient:
         self.kwargs = kwargs
         self._genai = None
 
-        # Do not import the provider here; do lazy import on generate to avoid
-        # imposing extra imports at object construction time.
-        self._genai = None
-
     def generate(self, prompt: str, temperature: float = 0.0, max_tokens: int = 512) -> str:
         """Generate raw text from the selected provider.
 
@@ -76,79 +72,40 @@ class LLMClient:
                 if hasattr(genai, "configure"):
                     genai.configure(api_key=self.api_key)
             except Exception:
-                # Non-fatal if the package doesn't use configure
                 pass
 
-            model = self.kwargs.get("model", "gemini-1.5")
-            # Attempt to call a generic generate method; API shapes vary.
-            # Prefer explicit attribute checks so we can provide a clear error
-            # when the installed `google-generativeai` package has a different API.
+            model_name = self.kwargs.get("model", "gemini-2.0-flash-lite")
+            
+            # --- MODERN SDK PATH (v0.8.5+) ---
+            # This is the correct way to instantiate a model in the current SDK.
+            if hasattr(genai, "GenerativeModel"):
+                try:
+                    generation_config = {
+                        "temperature": temperature,
+                        "max_output_tokens": max_tokens,
+                    }
+                    model = genai.GenerativeModel(model_name, generation_config=generation_config)
+                    response = model.generate_content(prompt)
+                    return response.text
+                except Exception as e:
+                    # Fallthrough only if this specific modern call fails
+                    print(f"Modern GenerativeModel call failed: {e}")
+
+            # --- LEGACY FALLBACKS ---
             try:
-                # Try several known API entrypoints from different versions
-                # of the `google-generativeai` package. We prefer text-producing
-                # call patterns and attempt them in order.
-
-                # 1) genai.generate_text(model=..., prompt=..., max_output_tokens=...)
+                # 1) genai.generate_text (Old PaLM API)
                 if hasattr(genai, "generate_text"):
-                    resp = genai.generate_text(model=model, prompt=prompt, max_output_tokens=max_tokens)
+                    resp = genai.generate_text(model=model_name, prompt=prompt, max_output_tokens=max_tokens)
                     return getattr(resp, "output", getattr(resp, "text", str(resp)))
 
-                # 2) genai.generate(...) or genai.generate(model=..., prompt=...)
-                if hasattr(genai, "generate"):
-                    try:
-                        resp = genai.generate(model=model, prompt=prompt, max_output_tokens=max_tokens)
-                    except TypeError:
-                        resp = genai.generate(prompt=prompt)
-                    return getattr(resp, "output", getattr(resp, "text", str(resp)))
-
-                # 3) genai.text.generate(model=..., prompt=...)
-                if hasattr(genai, "text") and hasattr(genai.text, "generate"):
-                    resp = genai.text.generate(model=model, prompt=prompt)
-                    return getattr(resp, "text", str(resp))
-
-                # 4) genai.models.generate(...) (newer shape)
-                if hasattr(genai, "models") and hasattr(genai.models, "generate"):
-                    try:
-                        resp = genai.models.generate(model=model, prompt=prompt, max_output_tokens=max_tokens)
-                        # resp may be a structured object; try common attributes
-                        return getattr(resp, "output", getattr(resp, "text", str(resp)))
-                    except Exception:
-                        # fallback to converting to str
-                        return str(resp)
-
-                # 4b) genai.get_model(...).generate_content(...) (older/newer SDK shapes)
-                # Some installed versions expose a `GenerativeModel` object with
-                # a `generate_content` method. Try to obtain the model and call it.
-                if hasattr(genai, "get_model"):
-                    try:
-                        model_obj = genai.get_model(model)
-                        if hasattr(model_obj, "generate_content"):
-                            resp = model_obj.generate_content(prompt=prompt, max_output_tokens=max_tokens)
-                            # Attempt to extract textual output from common response shapes
-                            out = None
-                            if hasattr(resp, "output") and getattr(resp, "output"):
-                                first = resp.output[0]
-                                out = getattr(first, "content", None) or getattr(first, "text", None) or str(first)
-                            if out is None:
-                                out = getattr(resp, "text", None) or str(resp)
-                            return out
-                    except Exception:
-                        # ignore and continue to other fallbacks
-                        pass
-
-                # 5) genai.chat.* style
+                # 2) genai.chat.* style
                 if hasattr(genai, "chat") and hasattr(genai.chat, "create"):
-                    try:
-                        chat_resp = genai.chat.create(model=model, messages=[{"role": "user", "content": prompt}], max_output_tokens=max_tokens)
-                        # Try to extract textual content from common paths
-                        if hasattr(chat_resp, "content"):
-                            return chat_resp.content
-                        if hasattr(chat_resp, "output"):
-                            return getattr(chat_resp, "output", str(chat_resp))
-                        # Last resort: string conversion
-                        return str(chat_resp)
-                    except Exception:
-                        pass
+                    chat_resp = genai.chat.create(model=model_name, messages=[{"role": "user", "content": prompt}], max_output_tokens=max_tokens)
+                    if hasattr(chat_resp, "content"):
+                        return chat_resp.content
+                    if hasattr(chat_resp, "output"):
+                        return getattr(chat_resp, "output", str(chat_resp))
+                    return str(chat_resp)
 
                 # If none matched, report an informative error
                 raise RuntimeError(
@@ -173,12 +130,11 @@ class LLMClient:
         raise ValueError("No JSON object found in LLM output")
 
     def generate_json(self, prompt: str, temperature: float = 0.0, max_tokens: int = 1024, force_mime: bool = True) -> Any:
-        """Generate and parse JSON from the model.
-
-        If `force_mime` is True the prompt will include a strong instruction
-        asking the model to respond with JSON only and to set
-        `response_mime_type: application/json` in its response header.
-        """
+        """Generate and parse JSON from the model."""
+        
+        # Note: If using the modern SDK with Gemini 1.5/2.0, we can theoretically use 
+        # response_mime_type='application/json' in generation_config, but we stick 
+        # to prompt engineering here for maximum compatibility across model versions.
         instruction = (
             'RESPONSE_MIME_TYPE: "application/json"\n'
             'ONLY RETURN A PARSABLE JSON OBJECT AFTER A VERY SHORT CHAIN-OF-THOUGHT.\n'
@@ -189,8 +145,8 @@ class LLMClient:
         raw = self.generate(full_prompt, temperature=temperature, max_tokens=max_tokens)
 
         # Extract JSON substring and parse
-        jtext = self._extract_json(raw)
         try:
+            jtext = self._extract_json(raw)
             return json.loads(jtext)
         except Exception as e:
             raise ValueError(f"Failed to parse JSON from LLM output: {e}\nRaw output:\n{raw}")

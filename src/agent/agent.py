@@ -22,9 +22,6 @@ import dotenv
 
 dotenv.load_dotenv()
 
-# check for GOOGLE_API_KEY
-print(os.environ.get("GOOGLE_API_KEY"))
-
 class Agent:
     def __init__(self, provider: str = "gemini", model: str = "gemini-1.5"):
         self.parser = Parser()
