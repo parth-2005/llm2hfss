@@ -1,0 +1,132 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtualenvs / envs
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# C extensions / compiled
+*.so
+
+# Logs and reports
+*.log
+logs/
+debug.log
+coverage.xml
+.coverage
+htmlcov/
+
+# Test caches
+.pytest_cache/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Type checkers / caches
+.mypy_cache/
+.pyre/
+.pytype/
+
+# General caches
+.cache/
+cache/
+
+# Python package metadata
+*.dist-info/
+
+# Environment / secrets
+.env
+*.env
+local_settings.py
+
+# Common data / outputs you typically don't commit
+data/
+datasets/
+outputs/
+output/
+results/
+Result*/
+artifacts/
+tmp/
+temp/
+
+# Machine learning / LLM artifacts (models, weights, checkpoints, caches)
+models/
+model/
+weights/
+checkpoints/
+checkpoints-*/
+runs/
+wandb/
+mlruns/
+tensorboard.out
+tb_logs/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.onnx
+*.h5
+*.pb
+*.tflite
+*.index
+*.meta
+*.msgpack
+*.tensors
+
+# Hugging Face / Transformers / Diffusers caches
+.cache/huggingface/
+.cache/transformers/
+.cache/torch/
+hf_cache/
+transformers_cache/
+hf_home/
+
+# pyaedt / Ansys / HFSS artifacts
+# Common project/result files and backups produced by AEDT/HFSS/pyaedt
+*.aedt
+*.aedtz
+*.aedtresults
+*.aedt_backup
+*.aedtbak
+*.Lock
+*.lock
+*.lock.*
+*_autosave*/
+Backup/
+Backups/
+*.bak
+*.bak.*
+Results/
+Output/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Node (if present in project)
+node_modules/
+
+# Misc
+*.swp
