@@ -1,160 +1,193 @@
-"""Small wrapper around PyAEDT / HFSS to centralize session actions.
-
-This wrapper provides a minimal, safe interface used by antenna classes
-and the HFSS manager. When `pyaedt` is not installed the class falls
-back to a simple mock that records actions and returns descriptive
-placeholders. The wrapper intentionally exposes a small API surface
-that is easy to stub in unit tests.
-"""
+"""Wrapper around PyAEDT / HFSS to centralize session actions."""
 
 from typing import Optional, Dict, Any, List
 import importlib
 import traceback
 
-
 class PyAedtSession:
-    """Context manager for a pyaedt HFSS session or a mock session.
+    """Context manager for a pyaedt HFSS session."""
 
-    Public API (minimal):
-    - add_dipole(params) -> descriptor
-    - add_patch(params) -> descriptor
-    - assign_port(descriptor, params) -> descriptor
-    - create_setup(name, params) -> descriptor
-    - analyze() -> dict
-    - export_report(name, target_path) -> dict
-
-    For real pyaedt sessions, the implementation will call into the
-    `Hfss` application object. For the mock mode, operations are logged
-    in `self.log` and return lightweight dicts.
-    """
-
-    def __init__(self, project_name: Optional[str] = None, non_graphical: bool = True, use_pyaedt: Optional[bool] = None):
-        self.project_name = project_name or "NeuroRF_project"
+    def __init__(self, project_name: Optional[str] = None, non_graphical: bool = False, use_pyaedt: Optional[bool] = None):
+        self.project_name = project_name or "NeuroRF_Project"
         self.non_graphical = non_graphical
-        self._pyaedt = None
+        self.use_pyaedt = use_pyaedt
         self.app = None
         self.mock = True
         self.log: List[Dict[str, Any]] = []
-        self.use_pyaedt = use_pyaedt
 
+        # Lazy import check
         if self.use_pyaedt is None:
             try:
-                self._pyaedt = importlib.import_module("pyaedt")
+                self._pyaedt = importlib.import_module("ansys.aedt.core")
                 self.use_pyaedt = True
             except Exception:
                 self._pyaedt = None
                 self.use_pyaedt = False
+        elif self.use_pyaedt:
+             try:
+                self._pyaedt = importlib.import_module("ansys.aedt.core")
+             except ImportError:
+                 print("PyAEDT not found despite use_pyaedt=True")
+                 self.use_pyaedt = False
 
     def __enter__(self):
         if self.use_pyaedt and self._pyaedt is not None:
             try:
-                Hfss = getattr(self._pyaedt, "Hfss", None)
-                if Hfss is None:
-                    # Different pyAEDT versions may expose different names
-                    self.app = self._pyaedt.App("hfss")
-                else:
-                    self.app = Hfss(non_graphical=self.non_graphical)
+                print(f"🔌 Connecting to HFSS (Project: {self.project_name})...")
+                self.app = self._pyaedt.Hfss(
+                    projectname=self.project_name,
+                    non_graphical=self.non_graphical,
+                    new_desktop_session=False,
+                    close_on_exit=False
+                )
                 self.mock = False
-                self.log.append({"action": "connect", "result": "pyaedt session created"})
-            except Exception:
-                traceback.print_exc()
+                print("✅ HFSS Connected.")
+            except Exception as e:
+                print(f"❌ Connection Failed: {e}")
                 self.app = None
                 self.mock = True
-                self.log.append({"action": "connect", "result": "failed, using mock"})
         else:
+            print("⚠️ Using Mock Session (No Hardware Connection)")
             self.app = None
             self.mock = True
-            self.log.append({"action": "connect", "result": "mock session"})
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        try:
-            if not self.mock and getattr(self.app, "close", None):
-                try:
-                    self.app.close()
-                    self.log.append({"action": "close", "result": "closed pyaedt"})
-                except Exception:
-                    self.log.append({"action": "close", "result": "error on close"})
-        finally:
-            self.app = None
-            return False
-
-    # ---- geometry & operations ------------------------------------------------
-    def add_dipole(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Add a simple dipole geometry. Returns descriptor."""
-        entry = {"action": "add_dipole", "params": params}
-        self.log.append(entry)
-        if self.mock:
-            return {"name": "dipole_1", "params": params, "built_in_hfss": False}
-        # Real pyaedt calls would go here; keep minimal for now
-        try:
-            modeler = getattr(self.app, "modeler", None)
-            if modeler:
-                # Example: create line or cylinder primitives (implementation specific)
+        if not self.mock and self.app:
+            try:
+                self.app.save_project()
+            except Exception:
                 pass
-        except Exception:
-            traceback.print_exc()
-        return {"name": "dipole_1", "params": params, "built_in_hfss": True}
+        return False
+
+    # ---- Geometry & Operations ------------------------------------------------
+    def add_dipole(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Draws a Dipole Antenna."""
+        if self.mock:
+            return {"name": "dipole_mock", "status": "mocked"}
+
+        try:
+            # 1. Parse Dimensions
+            L_arm = params.get("length_m", 0.05) / 2.0
+            gap = L_arm * 0.05
+            radius = params.get("radius_m", 0.001)
+            
+            # Convert to mm string for HFSS
+            l_mm = f"{L_arm * 1000:.4f}mm"
+            g_mm = f"{gap * 1000:.4f}mm"
+            r_mm = f"{radius * 1000:.4f}mm"
+
+            # 2. Draw Geometry
+            self.app.modeler.create_cylinder(
+                orientation="Z", origin=[0, 0, f"{g_mm}/2"], 
+                radius=r_mm, height=l_mm, 
+                name="Dipole_Top", matname="copper"
+            )
+            self.app.modeler.create_cylinder(
+                orientation="Z", origin=[0, 0, f"-{g_mm}/2 - {l_mm}"], 
+                radius=r_mm, height=l_mm, 
+                name="Dipole_Bottom", matname="copper"
+            )
+            
+            # 3. Create Port
+            # Draw a sheet between the arms
+            port_sheet = self.app.modeler.create_rectangle(
+                position=[f"-{r_mm}", 0, f"-{g_mm}/2"],
+                dimension_list=[f"2*{r_mm}", g_mm],
+                name="Port_Sheet", axis="Y"
+            )
+            self.app.create_lumped_port_to_sheet(port_sheet.name, axisdir="Z", impedance=73)
+            
+            return {"name": "Dipole", "status": "drawn"}
+        except Exception as e:
+            print(f"Error drawing dipole: {e}")
+            return {"status": "error"}
 
     def add_patch(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        entry = {"action": "add_patch", "params": params}
-        self.log.append(entry)
+        """Draws a Microstrip Patch Antenna."""
         if self.mock:
-            return {"name": "patch_1", "params": params, "built_in_hfss": False}
+            return {"name": "patch_mock", "status": "mocked"}
+
         try:
-            modeler = getattr(self.app, "modeler", None)
-            if modeler:
-                pass
-        except Exception:
-            traceback.print_exc()
-        return {"name": "patch_1", "params": params, "built_in_hfss": True}
+            # 1. Parse Dimensions
+            W = params.get("width_m", 0.03) * 1000
+            L = params.get("length_m", 0.03) * 1000
+            h = 1.6 # Substrate height mm
+            
+            # 2. Draw Substrate
+            self.app.modeler.create_box(
+                position=[f"-{W}mm", f"-{L}mm", "0mm"],
+                dimensions_list=[f"{2*W}mm", f"{2*L}mm", f"{h}mm"],
+                name="Substrate", matname="FR4_epoxy"
+            )
+            
+            # 3. Draw Ground
+            gnd = self.app.modeler.create_rectangle(
+                position=[f"-{W}mm", f"-{L}mm", "0mm"],
+                dimension_list=[f"{2*W}mm", f"{2*L}mm"],
+                name="Ground", axis="Z"
+            )
+            self.app.assign_perfect_e(gnd, name="PerfE_Gnd")
+
+            # 4. Draw Patch
+            patch = self.app.modeler.create_rectangle(
+                position=[f"-{W/2}mm", f"-{L/2}mm", f"{h}mm"],
+                dimension_list=[f"{W}mm", f"{L}mm"],
+                name="Patch", axis="Z"
+            )
+            self.app.assign_perfect_e(patch, name="PerfE_Patch")
+            
+            # 5. Assign Port (Simplified Edge Port)
+            # Create a sheet from ground to patch edge
+            feed = self.app.modeler.create_rectangle(
+                position=["0mm", f"-{L/2}mm", "0mm"],
+                dimension_list=["2mm", f"{h}mm"], # 2mm wide feed
+                name="Feed_Port", axis="Y"
+            )
+            self.app.create_lumped_port_to_sheet(feed.name, axisdir="Z", impedance=50)
+
+            return {"name": "Patch", "status": "drawn"}
+        except Exception as e:
+            print(f"Error drawing patch: {e}")
+            return {"status": "error"}
 
     def assign_port(self, target_descriptor: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
-        entry = {"action": "assign_port", "target": target_descriptor, "params": params}
-        self.log.append(entry)
-        if self.mock:
-            return {"port_name": "port1", "target": target_descriptor, "params": params}
-        try:
-            # Real session port assignment
-            pass
-        except Exception:
-            traceback.print_exc()
-        return {"port_name": "port1", "target": target_descriptor, "params": params}
+        """Placeholder as ports are handled in add_dipole/patch for simplicity now."""
+        return {"status": "included_in_build"}
 
     def create_setup(self, name: str = "Setup1", params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        entry = {"action": "create_setup", "name": name, "params": params}
-        self.log.append(entry)
-        if self.mock:
-            return {"setup": name, "params": params}
+        if self.mock: return {"setup": name}
         try:
-            # call into self.app for real setup
-            pass
+            setup = self.app.create_setup(name)
+            # Default to center frequency if not provided list
+            freqs = params.get("frequency_hz_list", [1e9])
+            center_ghz = freqs[0] / 1e9
+            setup.props["Frequency"] = f"{center_ghz}GHz"
+            
+            # Sweep
+            self.app.create_frequency_sweep(
+                setupname=name,
+                unit="GHz",
+                freqstart=center_ghz*0.5,
+                freqstop=center_ghz*1.5,
+                num_of_freq_points=51
+            )
+            return {"setup": name, "status": "created"}
         except Exception:
-            traceback.print_exc()
-        return {"setup": name, "params": params}
+            return {"status": "error"}
 
     def analyze(self) -> Dict[str, Any]:
-        entry = {"action": "analyze"}
-        self.log.append(entry)
-        if self.mock:
-            return {"status": "mock_solved"}
+        if self.mock: return {"status": "mock_solved"}
         try:
-            if getattr(self.app, "analyze", None):
-                self.app.analyze()
-                return {"status": "solved"}
+            self.app.analyze_setup("Setup1")
+            return {"status": "solved"}
         except Exception:
-            traceback.print_exc()
-        return {"status": "error"}
+            return {"status": "error"}
 
     def export_report(self, report_name: str, target_path: str) -> Dict[str, Any]:
-        entry = {"action": "export_report", "report": report_name, "path": target_path}
-        self.log.append(entry)
-        if self.mock:
-            return {"report": report_name, "path": target_path, "exported": False}
+        if self.mock: return {"status": "mock_exported"}
         try:
-            # Real export logic
-            return {"report": report_name, "path": target_path, "exported": True}
+            self.app.post.create_report("dB(S(1,1))")
+            return {"status": "exported"}
         except Exception:
-            traceback.print_exc()
-            return {"report": report_name, "path": target_path, "exported": False}
- 
+            return {"status": "error"}

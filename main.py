@@ -1,23 +1,26 @@
-"""NeuroRF entry point (minimal, dependency-free smoke test).
-
-Run `python main.py` to verify the scaffold is functional.
-"""
-
+"""NeuroRF entry point."""
 from src.agent.agent import Agent
 
-
 def main():
-    print("NeuroRF scaffold: agentic COT -> HFSS demo (mock)")
+    print("--- NeuroRF: Neuro-Symbolic Antenna Designer ---")
+    
+    # Initialize Agent
     agent = Agent(provider="gemini", model="gemini-2.0-flash-lite")
-    # Example user request; Agent will attempt LLM JSON parsing but will
-    # gracefully fall back to parser-only behavior if Gemini is not configured.
-    user_req = "I need a Bluetooth antenna."
-    result = agent.run_design(user_req)
-    print("Agent result:")
+    
+    # Get User Request
+    user_req = input("\nDescribe your antenna (e.g. '2.4GHz Patch'): ")
+    if not user_req: user_req = "2.4GHz Patch"
+
+    # Run Design Flow
+    print(f"🤖 Processing request: '{user_req}'...")
+    result = agent.run_design(user_req, use_pyaedt=True) # Force Real HFSS
+    
+    print("\n✅ Design Complete. Summary:")
     import json
-
-    print(json.dumps(result, indent=2))
-
+    # Print just the physics params for clarity
+    for ant in result.get("antennas", []):
+        print(f"Type: {ant['type']}")
+        print(f"Params: {json.dumps(ant['params'], indent=2)}")
 
 if __name__ == "__main__":
     main()
