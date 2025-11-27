@@ -3,6 +3,7 @@
 from typing import Dict
 from .base_antenna import BaseAntenna
 from utils import physics
+from typing import Any
 
 
 class PatchAntenna(BaseAntenna):
@@ -27,3 +28,23 @@ class PatchAntenna(BaseAntenna):
     def simulate(self) -> Dict[str, float]:
         params = self.design_params()
         return {"resonant_freq_hz": params["frequency_hz"], "bandwidth_pct": 2.0}
+
+    # HFSS integration hooks -------------------------------------------------
+    def build_in_hfss(self, session: Any) -> Dict[str, object]:
+        params = self.design_params()
+        desc = session.add_patch(params)
+        return {"antenna": "patch", "descriptor": desc}
+
+    def assign_excitations(self, session: Any) -> Dict[str, object]:
+        params = {"type": "microstrip_feed", "width_m": 0.001}
+        built = getattr(session, "log", []) and session.log[-1] or {}
+        port = session.assign_port(built, params)
+        return {"ports": [port]}
+
+    def postprocess(self, session: Any) -> Dict[str, float]:
+        if not getattr(session, "mock", True):
+            try:
+                session.export_report("S11", "patch_S11.csv")
+            except Exception:
+                pass
+        return self.simulate()

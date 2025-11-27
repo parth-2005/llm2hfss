@@ -79,32 +79,16 @@ class Agent:
         if use_pyaedt is None:
             use_pyaedt = os.environ.get("USE_PYAEDT", "false").lower() in ("1", "true", "yes")
 
+
         with HFSSManager(non_graphical=True, use_pyaedt=use_pyaedt) as hfss:
             for ant in antennas:
                 params = ant.design_params()
-                # Attach antenna-specific params into the tasks' params where appropriate
-                tasks_for_model = []
-                for t in tasks:
-                    t_copy = dict(t)
-                    # Merge frequency or geometry params into model/analysis tasks
-                    if t_copy.get("action") in ("create_geometry", "model"):
-                        t_copy.setdefault("params", {}).update({"geometry": params})
-                    if t_copy.get("action") in ("setup_analysis", "analysis_setup"):
-                        t_copy.setdefault("params", {}).update({"frequency_hz_list": freqs})
-                    tasks_for_model.append(t_copy)
-
-                # Build model descriptor
-                built = hfss.build_dipole(params) if isinstance(ant, Dipole) else hfss.build_dipole(params)
-                # Apply tasks (mock or real)
-                task_exec = hfss.apply_tasks(tasks_for_model)
-                # Run final simulation (could be triggered by 'solve' task above)
-                sim = hfss.run_simulation(built)
+                # Run the canonical antenna workflow (build -> excite -> setup -> solve -> extract)
+                workflow_res = hfss.run_antenna_workflow(ant, setup_name="Setup1", setup_params={"frequency_hz_list": freqs})
                 results["antennas"].append({
                     "type": ant.__class__.__name__,
                     "params": params,
-                    "built": built,
-                    "task_execution": task_exec,
-                    "simulation": sim,
+                    "workflow": workflow_res,
                 })
 
         return results

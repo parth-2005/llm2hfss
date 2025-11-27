@@ -1,16 +1,7 @@
 # Minimal requirements list for NeuroRF (expand as needed)
-pyaedt>=0.5.0
+pyAEDT>=0.5.0
 openai>=0.27.0
-
-# Optional/Dev:
-# numpy
-# scipy
 python-dotenv>=1.0.0
-# Gemini client (optional): google-generativeai
-# pip install google-generativeai
-# Minimal requirements list for NeuroRF (expand as needed)
-pyaedt>=0.5.0
-openai>=0.27.0
 
 # Optional/Dev:
 # numpy
